@@ -174,8 +174,13 @@
           <button class="logout-btn" id="logoutBtn">Logout</button>
           <form id="uploadForm">
             <input type="text" id="movieTitle" placeholder="Movie Title (required)" required />
-            <input type="url" id="movieLink" placeholder="YouTube Link (optional)" />
-            <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">You can add a YouTube link OR upload an .mp4 file.</div>
+            <input type="url" id="movieLink" placeholder="YouTube or direct .mp4 Link (optional)" />
+            <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">
+              You can add a YouTube link, a direct .mp4 link (Google Drive/Dropbox),<br>or upload an .mp4 file (max 4MB, for short clips only).<br>
+              <span style="color:#7fff7f;font-size:0.97em;">How to get a direct .mp4 link:<br>
+              <b>Google Drive:</b> Use <code>https://drive.google.com/uc?export=download&id=FILE_ID</code><br>
+              <b>Dropbox:</b> Change <code>?dl=0</code> to <code>?raw=1</code> in the share link.</span>
+            </div>
             <input type="file" id="movieFile" accept="video/mp4" style="margin-top:8px;" />
             <button type="submit">Add Movie</button>
           </form>
@@ -189,10 +194,12 @@
           const fileInput = document.getElementById('movieFile');
           const file = fileInput.files[0];
           if (!title) { alert('Enter a title.'); return; }
-          if (!url && !file) { alert('Provide a YouTube link or upload an .mp4 file.'); return; }
-          if (url && !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) { alert('Only YouTube links are allowed.'); return; }
+          if (!url && !file) { alert('Provide a YouTube link, direct .mp4 link, or upload an .mp4 file.'); return; }
+          // Accept YouTube or direct .mp4 links
+          if (url && !/^https?:\/\//.test(url)) { alert('Enter a valid URL (YouTube or direct .mp4 link).'); return; }
           if (file) {
             if (file.type !== 'video/mp4') { alert('Only .mp4 files allowed.'); return; }
+            if (file.size > 4 * 1024 * 1024) { alert('File too large! Please upload an .mp4 under 4MB.'); return; }
             const reader = new FileReader();
             reader.onload = function(ev) {
               movies.push({ title, mp4: ev.target.result });
@@ -204,7 +211,12 @@
             return;
           }
           if (url) {
-            movies.push({ title, url });
+            // If it's a direct .mp4 link, store as mp4; else, store as url
+            if (/\.mp4($|\?)/i.test(url) || /drive\.google\.com\/uc\?export=download&id=/.test(url) || /dropbox\.com.*[?&](raw|dl)=1/.test(url)) {
+              movies.push({ title, mp4: url });
+            } else {
+              movies.push({ title, url });
+            }
             localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
             this.reset();
             renderMovies();
@@ -390,6 +402,7 @@
       let isYouTube = movie.url && /youtube\.com|youtu\.be/.test(movie.url);
       let ytId = isYouTube ? getYouTubeId(movie.url) : null;
       let isMp4 = !!movie.mp4;
+      let isMp4Link = isMp4 && typeof movie.mp4 === 'string' && (/^https?:\/\//.test(movie.mp4) || movie.mp4.startsWith('blob:'));
       let adminBtns = isAdmin ? `<button class=\"delete-movie-btn\" data-idx=\"${idx}\" style=\"background:#b22222;color:#fff;border:none;border-radius:5px;padding:6px 14px;cursor:pointer;margin:10px 18px 0 0;float:right;\">Delete</button>` : '';
       let likes = movie.likes || 0;
       let dislikes = movie.dislikes || 0;
@@ -403,7 +416,7 @@
       }
       let mediaHtml = '';
       if (isMp4) {
-        // Prevent download: no controlsList="nodownload" is fully secure, but this hides the download button in most browsers
+        // If it's a direct link, use as src; if it's a DataURL, also works
         mediaHtml = `<video controls controlsList="nodownload noremoteplayback nofullscreen" width="100%" height="315" style="border-radius:8px;background:#0a2e13;object-fit:cover;" oncontextmenu="return false;"><source src="${movie.mp4}" type="video/mp4">Your browser does not support the video tag.</video>`;
       } else if (ytId) {
         mediaHtml = `<iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px;background:#0a2e13;"></iframe>`;
