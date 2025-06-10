@@ -55,94 +55,6 @@
     let currentSort = 'popular';
     let currentUser = null;
 
-    // --- Account System ---
-    function hash(str) {
-      // Simple hash for demo (not secure for real use)
-      let h = 0, i, chr;
-      if (str.length === 0) return h;
-      for (i = 0; i < str.length; i++) {
-        chr = str.charCodeAt(i);
-        h = ((h << 5) - h) + chr;
-        h |= 0;
-      }
-      return h.toString();
-    }
-    function getAccounts() {
-      return JSON.parse(localStorage.getItem('gorillaAccounts') || '{}');
-    }
-    function setAccounts(accs) {
-      localStorage.setItem('gorillaAccounts', JSON.stringify(accs));
-    }
-    function showLoginOrRegister() {
-      const modal = document.createElement('div');
-      modal.style = 'position:fixed;z-index:10000;top:0;left:0;width:100vw;height:100vh;background:#000c;display:flex;align-items:center;justify-content:center;';
-      modal.innerHTML = `
-        <div style="background:#232323;padding:36px 32px 28px 32px;border-radius:14px;box-shadow:0 4px 24px #000a;max-width:90vw;min-width:260px;text-align:center;">
-          <h2 style='color:#7fff7f;margin-bottom:18px;font-size:2em;'>Login or Register</h2>
-          <input id="loginUsername" maxlength="18" style="width:90%;padding:10px;font-size:1.1em;border-radius:7px;border:1px solid #bbb;background:#181818;color:#eee;" placeholder="Username..." autocomplete="username" />
-          <input id="loginPassword" type="password" maxlength="32" style="width:90%;padding:10px;font-size:1.1em;border-radius:7px;border:1px solid #bbb;background:#181818;color:#eee;margin-top:10px;" placeholder="Password..." autocomplete="current-password" />
-          <div id="loginError" style="color:#ff6b6b;margin-top:8px;display:none;"></div>
-          <button id="loginBtn" style="margin-top:18px;background:#2e8b57;color:#fff;padding:10px 28px;border:none;border-radius:7px;font-size:1.1em;cursor:pointer;">Login</button>
-          <button id="registerBtn" style="margin-top:10px;background:#7fff7f;color:#232;padding:10px 28px;border:none;border-radius:7px;font-size:1.1em;cursor:pointer;">Register</button>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      const userInput = modal.querySelector('#loginUsername');
-      const passInput = modal.querySelector('#loginPassword');
-      const err = modal.querySelector('#loginError');
-      const loginBtn = modal.querySelector('#loginBtn');
-      const regBtn = modal.querySelector('#registerBtn');
-      function login() {
-        const username = userInput.value.trim();
-        const password = passInput.value;
-        if (!username || !password) { err.textContent = 'Enter username and password.'; err.style.display = 'block'; return; }
-        const accs = getAccounts();
-        if (!accs[username] || accs[username].pass !== hash(password)) {
-          err.textContent = 'Invalid username or password.';
-          err.style.display = 'block';
-          return;
-        }
-        localStorage.setItem('gorillaUsername', username);
-        currentUser = username;
-        modal.remove();
-        // Discord webhook for login
-        fetch(DISCORD_WEBHOOK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: `# 🔑 User logged in: **${username}**` })
-        }).catch(()=>{});
-      }
-      function register() {
-        const username = userInput.value.trim();
-        const password = passInput.value;
-        if (!username || !password) { err.textContent = 'Enter username and password.'; err.style.display = 'block'; return; }
-        const accs = getAccounts();
-        if (accs[username]) { err.textContent = 'Username already exists.'; err.style.display = 'block'; return; }
-        accs[username] = { pass: hash(password) };
-        setAccounts(accs);
-        localStorage.setItem('gorillaUsername', username);
-        currentUser = username;
-        modal.remove();
-        // Discord webhook for registration
-        fetch(DISCORD_WEBHOOK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: `# 🆕 User registered: **${username}**` })
-        }).catch(()=>{});
-      }
-      loginBtn.onclick = login;
-      regBtn.onclick = register;
-      userInput.onkeydown = passInput.onkeydown = function(e) { if (e.key === 'Enter') login(); };
-      userInput.focus();
-    }
-    function ensureAccount() {
-      let username = localStorage.getItem('gorillaUsername');
-      if (!username) {
-        showLoginOrRegister();
-      } else {
-        currentUser = username;
-      }
-    }
     // --- Admin Panel ---
     function renderAdminPanel() {
       const panel = document.getElementById('adminPanel');
@@ -162,6 +74,7 @@
           if ((passInput.value || '').trim() === ADMIN_PASSWORD) {
             isAdmin = true;
             renderAdminPanel();
+            renderMovies();
           } else {
             errorDiv.style.display = 'block';
             passInput.value = '';
@@ -174,53 +87,26 @@
           <button class="logout-btn" id="logoutBtn">Logout</button>
           <form id="uploadForm">
             <input type="text" id="movieTitle" placeholder="Movie Title (required)" required />
-            <input type="url" id="movieLink" placeholder="YouTube or direct .mp4 Link (optional)" />
+            <input type="url" id="movieLink" placeholder="YouTube Link (required)" required />
             <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">
-              You can add a YouTube link, a direct .mp4 link (Google Drive/Dropbox),<br>or upload an .mp4 file (max 4MB, for short clips only).<br>
-              <span style="color:#7fff7f;font-size:0.97em;">How to get a direct .mp4 link:<br>
-              <b>Google Drive:</b> Use <code>https://drive.google.com/uc?export=download&id=FILE_ID</code><br>
-              <b>Dropbox:</b> Change <code>?dl=0</code> to <code>?raw=1</code> in the share link.</span>
+              <span style="color:#7fff7f;font-size:0.97em;">Only YouTube links are allowed. Uploading .mp4 files or direct links is disabled.</span>
             </div>
-            <input type="file" id="movieFile" accept="video/mp4" style="margin-top:8px;" />
             <button type="submit">Add Movie</button>
           </form>
           <button id="clearAllBtn" style="background:#b22222;margin-top:10px;">Delete ALL Movies</button>
         `;
-        document.getElementById('logoutBtn').onclick = () => { isAdmin = false; renderAdminPanel(); };
+        document.getElementById('logoutBtn').onclick = () => { isAdmin = false; renderAdminPanel(); renderMovies(); };
         document.getElementById('uploadForm').onsubmit = function(e) {
           e.preventDefault();
           const title = document.getElementById('movieTitle').value.trim();
           const url = document.getElementById('movieLink').value.trim();
-          const fileInput = document.getElementById('movieFile');
-          const file = fileInput.files[0];
           if (!title) { alert('Enter a title.'); return; }
-          if (!url && !file) { alert('Provide a YouTube link, direct .mp4 link, or upload an .mp4 file.'); return; }
-          // Accept YouTube or direct .mp4 links
-          if (url && !/^https?:\/\//.test(url)) { alert('Enter a valid URL (YouTube or direct .mp4 link).'); return; }
-          if (file) {
-            if (file.type !== 'video/mp4') { alert('Only .mp4 files allowed.'); return; }
-            if (file.size > 4 * 1024 * 1024) { alert('File too large! Please upload an .mp4 under 4MB.'); return; }
-            const reader = new FileReader();
-            reader.onload = function(ev) {
-              movies.push({ title, mp4: ev.target.result });
-              localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
-              document.getElementById('uploadForm').reset();
-              renderMovies();
-            };
-            reader.readAsDataURL(file);
-            return;
-          }
-          if (url) {
-            // If it's a direct .mp4 link, store as mp4; else, store as url
-            if (/\.mp4($|\?)/i.test(url) || /drive\.google\.com\/uc\?export=download&id=/.test(url) || /dropbox\.com.*[?&](raw|dl)=1/.test(url)) {
-              movies.push({ title, mp4: url });
-            } else {
-              movies.push({ title, url });
-            }
-            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
-            this.reset();
-            renderMovies();
-          }
+          if (!url) { alert('Provide a YouTube link.'); return; }
+          if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) { alert('Only YouTube links are allowed.'); return; }
+          movies.push({ title, url });
+          localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+          this.reset();
+          renderMovies();
         };
         document.getElementById('clearAllBtn').onclick = function() {
           if (confirm('Delete ALL movies? This cannot be undone.')) {
@@ -234,6 +120,10 @@
     // --- Movie Gallery ---
     function renderMovies() {
       const container = document.getElementById('movieListContainer');
+      if (!isAdmin) {
+        container.innerHTML = '<div style="color:#b6eab6;text-align:center;">No movies available.</div>';
+        return;
+      }
       if (!movies.length) {
         container.innerHTML = '<div style="color:#b6eab6;text-align:center;">No movies uploaded yet.</div>';
         return;
@@ -473,49 +363,9 @@
       video.addEventListener('error', finish);
       setTimeout(finish, 8000); // fallback timeout
     });
-    // --- Username Modal ---
-    function ensureAccount() {
-      let username = localStorage.getItem('gorillaUsername');
-      if (!username) {
-        showLoginOrRegister();
-      } else {
-        currentUser = username;
-      }
-    }
-    // --- Account Logout Button ---
-    function renderUserBar() {
-      let username = currentUser || localStorage.getItem('gorillaUsername');
-      let bar = document.getElementById('userBar');
-      if (!bar) {
-        bar = document.createElement('div');
-        bar.id = 'userBar';
-        bar.style = 'position:fixed;top:12px;right:18px;z-index:1000;display:flex;align-items:center;gap:12px;background:#232323;padding:8px 18px;border-radius:8px;box-shadow:0 2px 8px #0006;font-size:1.08em;';
-        document.body.appendChild(bar);
-      }
-      bar.innerHTML = `<span style='color:#7fff7f;'>👤 ${username}</span> <button id='userLogoutBtn' style='background:#b22222;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:1em;cursor:pointer;'>Log out</button>`;
-      document.getElementById('userLogoutBtn').onclick = function() {
-        localStorage.removeItem('gorillaUsername');
-        currentUser = null;
-        // Discord webhook for logout
-        fetch(DISCORD_WEBHOOK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: `# 🚪 User logged out: **${username}**` })
-        }).catch(()=>{});
-        if (bar) bar.remove();
-        showLoginOrRegister();
-      };
-    }
     // --- Init ---
     renderAdminPanel();
     renderMovies();
-    ensureAccount();
-    renderUserBar();
-    // Show user bar after login/register
-    window.showLoginOrRegister = function() {
-      showLoginOrRegister();
-      setTimeout(renderUserBar, 100); // re-render bar after login
-    };
   </script>
 </body>
 </html>
