@@ -174,9 +174,10 @@
           <button class="logout-btn" id="logoutBtn">Logout</button>
           <form id="uploadForm">
             <input type="text" id="movieTitle" placeholder="Movie Title (required)" required />
-            <input type="url" id="movieLink" placeholder="YouTube Link (required)" required />
+            <input type="url" id="movieLink" placeholder="YouTube Link (optional)" />
+            <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">You can add a YouTube link OR upload an .mp4 file.</div>
+            <input type="file" id="movieFile" accept="video/mp4" style="margin-top:8px;" />
             <button type="submit">Add Movie</button>
-            <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">Only YouTube links are supported. Movies are saved in your browser.</div>
           </form>
           <button id="clearAllBtn" style="background:#b22222;margin-top:10px;">Delete ALL Movies</button>
         `;
@@ -185,12 +186,29 @@
           e.preventDefault();
           const title = document.getElementById('movieTitle').value.trim();
           const url = document.getElementById('movieLink').value.trim();
-          if (!title || !url) { alert('Enter a title and a YouTube link.'); return; }
-          if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) { alert('Only YouTube links are allowed.'); return; }
-          movies.push({ title, url });
-          localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
-          this.reset();
-          renderMovies();
+          const fileInput = document.getElementById('movieFile');
+          const file = fileInput.files[0];
+          if (!title) { alert('Enter a title.'); return; }
+          if (!url && !file) { alert('Provide a YouTube link or upload an .mp4 file.'); return; }
+          if (url && !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) { alert('Only YouTube links are allowed.'); return; }
+          if (file) {
+            if (file.type !== 'video/mp4') { alert('Only .mp4 files allowed.'); return; }
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+              movies.push({ title, mp4: ev.target.result });
+              localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+              document.getElementById('uploadForm').reset();
+              renderMovies();
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
+          if (url) {
+            movies.push({ title, url });
+            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+            this.reset();
+            renderMovies();
+          }
         };
         document.getElementById('clearAllBtn').onclick = function() {
           if (confirm('Delete ALL movies? This cannot be undone.')) {
@@ -369,8 +387,9 @@
       }
     }
     function renderMovieCard(movie, idx) {
-      let isYouTube = /youtube\.com|youtu\.be/.test(movie.url);
+      let isYouTube = movie.url && /youtube\.com|youtu\.be/.test(movie.url);
       let ytId = isYouTube ? getYouTubeId(movie.url) : null;
+      let isMp4 = !!movie.mp4;
       let adminBtns = isAdmin ? `<button class=\"delete-movie-btn\" data-idx=\"${idx}\" style=\"background:#b22222;color:#fff;border:none;border-radius:5px;padding:6px 14px;cursor:pointer;margin:10px 18px 0 0;float:right;\">Delete</button>` : '';
       let likes = movie.likes || 0;
       let dislikes = movie.dislikes || 0;
@@ -382,11 +401,19 @@
       if (isAdmin && (movie.dislikedUsers && movie.dislikedUsers.length)) {
         adminDislikeRemove = `<button class=\"admin-remove-dislikes-btn\" data-idx=\"${idx}\" style=\"background:#e67e22;color:#fff;border:none;border-radius:5px;padding:5px 10px;margin-left:10px;cursor:pointer;font-size:0.95em;\">Remove All Dislikes</button>`;
       }
+      let mediaHtml = '';
+      if (isMp4) {
+        // Prevent download: no controlsList="nodownload" is fully secure, but this hides the download button in most browsers
+        mediaHtml = `<video controls controlsList="nodownload noremoteplayback nofullscreen" width="100%" height="315" style="border-radius:8px;background:#0a2e13;object-fit:cover;" oncontextmenu="return false;"><source src="${movie.mp4}" type="video/mp4">Your browser does not support the video tag.</video>`;
+      } else if (ytId) {
+        mediaHtml = `<iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px;background:#0a2e13;"></iframe>`;
+      } else {
+        mediaHtml = `<div style='width:100%;height:200px;display:flex;align-items:center;justify-content:center;background:#232323;border-radius:8px;'><span style='color:#bbb;'>${movie.title || 'Movie Link'}</span></div>`;
+      }
       return `
         <div class=\"movie-card\">
           <div style=\"position:relative;\">
-            ${ytId ? `<iframe width=\"100%\" height=\"315\" src=\"https://www.youtube.com/embed/${ytId}\" frameborder=\"0\" allowfullscreen style=\"border-radius:8px;background:#0a2e13;\"></iframe>`
-            : `<div style='width:100%;height:200px;display:flex;align-items:center;justify-content:center;background:#232323;border-radius:8px;'><span style='color:#bbb;'>${movie.title || 'Movie Link'}</span></div>`}
+            ${mediaHtml}
           </div>
           <div class=\"movie-title\">${movie.title || movie.url}${adminBtns}</div>
           <div style=\"display:flex;align-items:center;justify-content:center;gap:18px;margin-top:8px;\">
