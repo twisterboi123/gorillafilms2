@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GorillaFilms - Fan Movies</title>
+  <style>
+    body { background: #181818; color: #eee; font-family: Arial, sans-serif; margin: 0; }
+    .container { max-width: 900px; margin: 40px auto; background: #232323; border-radius: 16px; box-shadow: 0 4px 24px #000a; padding: 40px 32px 32px 32px; position: relative; }
+    h1 { text-align: center; color: #b6eab6; font-size: 2.5rem; letter-spacing: 2px; margin-bottom: 24px; }
+    .admin-panel { background: #222; border-radius: 12px; box-shadow: 0 4px 24px #000a; padding: 24px 28px; max-width: 400px; margin: 0 auto 32px auto; }
+    .admin-panel input, .admin-panel button { width: 100%; margin-bottom: 12px; padding: 10px; border-radius: 7px; border: none; font-size: 1rem; }
+    .admin-panel input { background: #222; color: #eee; border: 1px solid #bbb; }
+    .admin-panel button { background: #2e8b57; color: #fff; font-weight: bold; cursor: pointer; }
+    .admin-panel button:hover { background: #3cb371; }
+    .movie-row { display: flex; flex-direction: row; gap: 32px; overflow-x: auto; padding-bottom: 16px; scroll-snap-type: x mandatory; }
+    .movie-card { min-width: 340px; max-width: 340px; flex: 0 0 340px; scroll-snap-align: start; background:#193c1a; border-radius:10px; margin-bottom:24px; padding:0 0 18px 0; box-shadow:0 2px 8px #0003; position:relative; overflow:hidden; display: flex; flex-direction: column; align-items: stretch; }
+    .movie-thumb-overlay img { width: 100%; height: 315px; object-fit: cover; border-radius: 8px 8px 0 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+    .movie-thumb-overlay.hide { opacity: 0; pointer-events: none; }
+    .movie-title { color:#7fff7f; font-size:1.1em; font-weight:bold; margin: 10px 18px 0 18px; }
+    .logout-btn { background: #b22222; color: #fff; border: none; border-radius: 7px; padding: 8px 18px; font-size: 1em; cursor: pointer; float: right; margin-top: -10px; }
+    .logout-btn:hover { background: #e74c3c; }
+    @media (max-width: 600px) { .container { padding: 10px; } .movie-card { min-width: 90vw; max-width: 90vw; } }
+  </style>
+</head>
+<body>
+  <!-- Loading Screen Overlay -->
+  <div id="loadingOverlay" style="position:fixed;z-index:9999;top:0;left:0;width:100vw;height:100vh;background:#000;display:flex;align-items:center;justify-content:center;transition:opacity 0.7s;">
+    <video id="loadingVideo" src="YouCut_20250609_112216557(1).mp4" autoplay muted playsinline style="width:100vw;height:100vh;object-fit:cover;"></video>
+  </div>
+  <div class="container" style="opacity:0;transition:opacity 0.7s;">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;margin-bottom:18px;">
+      <img src="BackgroundEraser_20250609_111031680.png" alt="GorillaFilms Logo" style="width:270px;height:auto;margin-bottom:10px;filter:drop-shadow(0 2px 8px #000a);">
+    </div>
+    <div style="display:flex;justify-content:center;gap:16px;margin-bottom:24px;">
+      <button id="sortPopular" style="background:#111;color:#eee;padding:8px 18px;border:none;border-radius:5px;cursor:pointer;font-size:1em;">Most Popular</button>
+      <button id="sortNewest" style="background:#111;color:#eee;padding:8px 18px;border:none;border-radius:5px;cursor:pointer;font-size:1em;">Newest</button>
+      <button id="sortOldest" style="background:#111;color:#eee;padding:8px 18px;border:none;border-radius:5px;cursor:pointer;font-size:1em;">Oldest</button>
+      <button id="contactTab" style="background:#2e8b57;color:#fff;padding:8px 18px;border:none;border-radius:5px;cursor:pointer;font-size:1em;">Join Discord</button>
+    </div>
+    <div id="contactSection" style="display:none;text-align:center;background:#1a2a1a;padding:32px 18px 28px 18px;border-radius:12px;margin-bottom:24px;color:#b6eab6;font-size:1.15em;max-width:500px;margin-left:auto;margin-right:auto;">
+      Want your movie on this website? Join our Discord:<br>
+      <a href="https://discord.gg/jFQsQMqb" target="_blank" style="color:#7fff7f;font-weight:bold;text-decoration:underline;word-break:break-all;">https://discord.gg/jFQsQMqb</a>
+    </div>
+    <div id="adminPanel" class="admin-panel"></div>
+    <div id="movieListContainer"></div>
+  </div>
+  <script>
+    // --- Config ---
+    const ADMIN_PASSWORD = "Gorilla8888";
+    const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1382020612079485109/LB63ljIHrnJWMZbKEEfzPZ_jPL4IXONB14ukbzXe612sxHRa97wti86qkM5ACeyQfVHe";
+    // --- State ---
+    let isAdmin = false;
+    let movies = JSON.parse(localStorage.getItem('gorillaFanMovies') || '[]');
+    let currentSort = 'popular';
+    let currentUser = null;
+
+    // --- Account System ---
+    function hash(str) {
+      // Simple hash for demo (not secure for real use)
+      let h = 0, i, chr;
+      if (str.length === 0) return h;
+      for (i = 0; i < str.length; i++) {
+        chr = str.charCodeAt(i);
+        h = ((h << 5) - h) + chr;
+        h |= 0;
+      }
+      return h.toString();
+    }
+    function getAccounts() {
+      return JSON.parse(localStorage.getItem('gorillaAccounts') || '{}');
+    }
+    function setAccounts(accs) {
+      localStorage.setItem('gorillaAccounts', JSON.stringify(accs));
+    }
+    function showLoginOrRegister() {
+      const modal = document.createElement('div');
+      modal.style = 'position:fixed;z-index:10000;top:0;left:0;width:100vw;height:100vh;background:#000c;display:flex;align-items:center;justify-content:center;';
+      modal.innerHTML = `
+        <div style="background:#232323;padding:36px 32px 28px 32px;border-radius:14px;box-shadow:0 4px 24px #000a;max-width:90vw;min-width:260px;text-align:center;">
+          <h2 style='color:#7fff7f;margin-bottom:18px;font-size:2em;'>Login or Register</h2>
+          <input id="loginUsername" maxlength="18" style="width:90%;padding:10px;font-size:1.1em;border-radius:7px;border:1px solid #bbb;background:#181818;color:#eee;" placeholder="Username..." autocomplete="username" />
+          <input id="loginPassword" type="password" maxlength="32" style="width:90%;padding:10px;font-size:1.1em;border-radius:7px;border:1px solid #bbb;background:#181818;color:#eee;margin-top:10px;" placeholder="Password..." autocomplete="current-password" />
+          <div id="loginError" style="color:#ff6b6b;margin-top:8px;display:none;"></div>
+          <button id="loginBtn" style="margin-top:18px;background:#2e8b57;color:#fff;padding:10px 28px;border:none;border-radius:7px;font-size:1.1em;cursor:pointer;">Login</button>
+          <button id="registerBtn" style="margin-top:10px;background:#7fff7f;color:#232;padding:10px 28px;border:none;border-radius:7px;font-size:1.1em;cursor:pointer;">Register</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      const userInput = modal.querySelector('#loginUsername');
+      const passInput = modal.querySelector('#loginPassword');
+      const err = modal.querySelector('#loginError');
+      const loginBtn = modal.querySelector('#loginBtn');
+      const regBtn = modal.querySelector('#registerBtn');
+      function login() {
+        const username = userInput.value.trim();
+        const password = passInput.value;
+        if (!username || !password) { err.textContent = 'Enter username and password.'; err.style.display = 'block'; return; }
+        const accs = getAccounts();
+        if (!accs[username] || accs[username].pass !== hash(password)) {
+          err.textContent = 'Invalid username or password.';
+          err.style.display = 'block';
+          return;
+        }
+        localStorage.setItem('gorillaUsername', username);
+        currentUser = username;
+        modal.remove();
+        // Discord webhook for login
+        fetch(DISCORD_WEBHOOK, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: `# 🔑 User logged in: **${username}**` })
+        }).catch(()=>{});
+      }
+      function register() {
+        const username = userInput.value.trim();
+        const password = passInput.value;
+        if (!username || !password) { err.textContent = 'Enter username and password.'; err.style.display = 'block'; return; }
+        const accs = getAccounts();
+        if (accs[username]) { err.textContent = 'Username already exists.'; err.style.display = 'block'; return; }
+        accs[username] = { pass: hash(password) };
+        setAccounts(accs);
+        localStorage.setItem('gorillaUsername', username);
+        currentUser = username;
+        modal.remove();
+        // Discord webhook for registration
+        fetch(DISCORD_WEBHOOK, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: `# 🆕 User registered: **${username}**` })
+        }).catch(()=>{});
+      }
+      loginBtn.onclick = login;
+      regBtn.onclick = register;
+      userInput.onkeydown = passInput.onkeydown = function(e) { if (e.key === 'Enter') login(); };
+      userInput.focus();
+    }
+    function ensureAccount() {
+      let username = localStorage.getItem('gorillaUsername');
+      if (!username) {
+        showLoginOrRegister();
+      } else {
+        currentUser = username;
+      }
+    }
+    // --- Admin Panel ---
+    function renderAdminPanel() {
+      const panel = document.getElementById('adminPanel');
+      if (!isAdmin) {
+        panel.innerHTML = `
+          <form id="loginForm" autocomplete="off" style="margin:0;">
+            <input type="password" id="adminPass" placeholder="Admin password" autocomplete="new-password" />
+            <button type="submit">Admin Login</button>
+          </form>
+          <div id="loginError" style="color:#ff6b6b;text-align:center;font-size:1em;margin-top:6px;display:none;">Incorrect password.</div>
+        `;
+        const loginForm = document.getElementById('loginForm');
+        const passInput = document.getElementById('adminPass');
+        const errorDiv = document.getElementById('loginError');
+        loginForm.onsubmit = e => {
+          e.preventDefault();
+          if ((passInput.value || '').trim() === ADMIN_PASSWORD) {
+            isAdmin = true;
+            renderAdminPanel();
+          } else {
+            errorDiv.style.display = 'block';
+            passInput.value = '';
+            passInput.focus();
+          }
+        };
+        passInput.oninput = () => { errorDiv.style.display = 'none'; };
+      } else {
+        panel.innerHTML = `
+          <button class="logout-btn" id="logoutBtn">Logout</button>
+          <form id="uploadForm">
+            <input type="text" id="movieTitle" placeholder="Movie Title (required)" required />
+            <input type="url" id="movieLink" placeholder="YouTube Link (required)" required />
+            <button type="submit">Add Movie</button>
+            <div style="color:#bbb;font-size:0.98em;margin-top:8px;text-align:center;">Only YouTube links are supported. Movies are saved in your browser.</div>
+          </form>
+          <button id="clearAllBtn" style="background:#b22222;margin-top:10px;">Delete ALL Movies</button>
+        `;
+        document.getElementById('logoutBtn').onclick = () => { isAdmin = false; renderAdminPanel(); };
+        document.getElementById('uploadForm').onsubmit = function(e) {
+          e.preventDefault();
+          const title = document.getElementById('movieTitle').value.trim();
+          const url = document.getElementById('movieLink').value.trim();
+          if (!title || !url) { alert('Enter a title and a YouTube link.'); return; }
+          if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) { alert('Only YouTube links are allowed.'); return; }
+          movies.push({ title, url });
+          localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+          this.reset();
+          renderMovies();
+        };
+        document.getElementById('clearAllBtn').onclick = function() {
+          if (confirm('Delete ALL movies? This cannot be undone.')) {
+            movies = [];
+            localStorage.setItem('gorillaFanMovies', '[]');
+            renderMovies();
+          }
+        };
+      }
+    }
+    // --- Movie Gallery ---
+    function renderMovies() {
+      const container = document.getElementById('movieListContainer');
+      if (!movies.length) {
+        container.innerHTML = '<div style="color:#b6eab6;text-align:center;">No movies uploaded yet.</div>';
+        return;
+      }
+      let sorted = [...movies];
+      if (currentSort === 'popular') {
+        sorted = movies.slice().sort((a, b) => ((b.likes || 0) - (b.dislikes || 0)) - ((a.likes || 0) - (a.dislikes || 0)));
+      } else if (currentSort === 'newest') {
+        sorted = movies.slice().reverse();
+      } else if (currentSort === 'oldest') {
+        sorted = movies.slice();
+      }
+      container.innerHTML = `<div class="movie-row">${sorted.map((m,i)=>renderMovieCard(m,i)).join('')}</div>`;
+      if (isAdmin) {
+        document.querySelectorAll('.delete-movie-btn').forEach(btn => {
+          btn.onclick = function() {
+            const idx = parseInt(btn.dataset.idx);
+            if (confirm('Delete this movie?')) {
+              movies.splice(idx,1);
+              localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+              renderMovies();
+            }
+          };
+        });
+      }
+      // Like/Dislike event listeners
+      document.querySelectorAll('.like-btn').forEach(btn => {
+        btn.onclick = function() {
+          const idx = parseInt(btn.dataset.idx);
+          const username = currentUser || localStorage.getItem('gorillaUsername') || 'Anonymous';
+          let likedUsers = movies[idx].likedUsers || [];
+          if (!Array.isArray(likedUsers)) likedUsers = [];
+          const userIdx = likedUsers.indexOf(username);
+          if (userIdx !== -1) {
+            // Remove like
+            movies[idx].likes = Math.max(0, (movies[idx].likes || 0) - 1);
+            likedUsers.splice(userIdx, 1);
+            movies[idx].likedUsers = likedUsers;
+            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+            // Only send to Discord if last like is removed
+            if ((movies[idx].likes || 0) === 0) {
+              const movie = movies[idx];
+              fetch(DISCORD_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  content: `# ❌👍🥝 ${username} removed like from: **${movie.title || movie.url}**`
+                })
+              }).catch(()=>{});
+            }
+            renderMovies();
+            return;
+          }
+          // Add like
+          movies[idx].likes = (movies[idx].likes || 0) + 1;
+          likedUsers.push(username);
+          movies[idx].likedUsers = likedUsers;
+          localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+          // Only send to Discord if this is the first like
+          if ((movies[idx].likes || 0) === 1) {
+            const movie = movies[idx];
+            fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `# 👍🥝 ${username} liked: **${movie.title || movie.url}**`
+              })
+            }).catch(()=>{});
+          }
+          renderMovies();
+        };
+      });
+      document.querySelectorAll('.dislike-btn').forEach(btn => {
+        btn.onclick = function() {
+          const idx = parseInt(btn.dataset.idx);
+          const username = currentUser || localStorage.getItem('gorillaUsername') || 'Anonymous';
+          let dislikedUsers = movies[idx].dislikedUsers || [];
+          if (!Array.isArray(dislikedUsers)) dislikedUsers = [];
+          const userIdx = dislikedUsers.indexOf(username);
+          if (userIdx !== -1) {
+            // Remove dislike
+            movies[idx].dislikes = Math.max(0, (movies[idx].dislikes || 0) - 1);
+            dislikedUsers.splice(userIdx, 1);
+            movies[idx].dislikedUsers = dislikedUsers;
+            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+            // Only send to Discord if last dislike is removed
+            if ((movies[idx].dislikes || 0) === 0) {
+              const movie = movies[idx];
+              fetch(DISCORD_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  content: `# ❌👎🍌 ${username} removed dislike from: **${movie.title || movie.url}**`
+                })
+              }).catch(()=>{});
+            }
+            renderMovies();
+            return;
+          }
+          // Add dislike
+          movies[idx].dislikes = (movies[idx].dislikes || 0) + 1;
+          dislikedUsers.push(username);
+          movies[idx].dislikedUsers = dislikedUsers;
+          localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+          // Only send to Discord if this is the first dislike
+          if ((movies[idx].dislikes || 0) === 1) {
+            const movie = movies[idx];
+            fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `# 👎🍌 ${username} disliked: **${movie.title || movie.url}**`
+              })
+            }).catch(()=>{});
+          }
+          renderMovies();
+        };
+      });
+      // Admin Remove All Likes/Dislikes event listeners
+      if (isAdmin) {
+        document.querySelectorAll('.admin-remove-likes-btn').forEach(btn => {
+          btn.onclick = function() {
+            const idx = parseInt(btn.dataset.idx);
+            if (!movies[idx]) return;
+            if (!movies[idx].likedUsers || movies[idx].likedUsers.length === 0) return;
+            if (!confirm('Remove ALL likes from this movie?')) return;
+            const movie = movies[idx];
+            movie.likes = 0;
+            movie.likedUsers = [];
+            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+            // Discord webhook for admin action
+            fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `# 🧹👍 All likes removed by admin from: **${movie.title || movie.url}**`
+              })
+            }).catch(()=>{});
+            renderMovies();
+          };
+        });
+        document.querySelectorAll('.admin-remove-dislikes-btn').forEach(btn => {
+          btn.onclick = function() {
+            const idx = parseInt(btn.dataset.idx);
+            if (!movies[idx]) return;
+            if (!movies[idx].dislikedUsers || movies[idx].dislikedUsers.length === 0) return;
+            if (!confirm('Remove ALL dislikes from this movie?')) return;
+            const movie = movies[idx];
+            movie.dislikes = 0;
+            movie.dislikedUsers = [];
+            localStorage.setItem('gorillaFanMovies', JSON.stringify(movies));
+            // Discord webhook for admin action
+            fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `# 🧹👎 All dislikes removed by admin from: **${movie.title || movie.url}**`
+              })
+            }).catch(()=>{});
+            renderMovies();
+          };
+        });
+      }
+    }
+    function renderMovieCard(movie, idx) {
+      let isYouTube = /youtube\.com|youtu\.be/.test(movie.url);
+      let ytId = isYouTube ? getYouTubeId(movie.url) : null;
+      let adminBtns = isAdmin ? `<button class=\"delete-movie-btn\" data-idx=\"${idx}\" style=\"background:#b22222;color:#fff;border:none;border-radius:5px;padding:6px 14px;cursor:pointer;margin:10px 18px 0 0;float:right;\">Delete</button>` : '';
+      let likes = movie.likes || 0;
+      let dislikes = movie.dislikes || 0;
+      let adminLikeRemove = '';
+      if (isAdmin && (movie.likedUsers && movie.likedUsers.length)) {
+        adminLikeRemove = `<button class=\"admin-remove-likes-btn\" data-idx=\"${idx}\" style=\"background:#e67e22;color:#fff;border:none;border-radius:5px;padding:5px 10px;margin-left:10px;cursor:pointer;font-size:0.95em;\">Remove All Likes</button>`;
+      }
+      let adminDislikeRemove = '';
+      if (isAdmin && (movie.dislikedUsers && movie.dislikedUsers.length)) {
+        adminDislikeRemove = `<button class=\"admin-remove-dislikes-btn\" data-idx=\"${idx}\" style=\"background:#e67e22;color:#fff;border:none;border-radius:5px;padding:5px 10px;margin-left:10px;cursor:pointer;font-size:0.95em;\">Remove All Dislikes</button>`;
+      }
+      return `
+        <div class=\"movie-card\">
+          <div style=\"position:relative;\">
+            ${ytId ? `<iframe width=\"100%\" height=\"315\" src=\"https://www.youtube.com/embed/${ytId}\" frameborder=\"0\" allowfullscreen style=\"border-radius:8px;background:#0a2e13;\"></iframe>`
+            : `<div style='width:100%;height:200px;display:flex;align-items:center;justify-content:center;background:#232323;border-radius:8px;'><span style='color:#bbb;'>${movie.title || 'Movie Link'}</span></div>`}
+          </div>
+          <div class=\"movie-title\">${movie.title || movie.url}${adminBtns}</div>
+          <div style=\"display:flex;align-items:center;justify-content:center;gap:18px;margin-top:8px;\">
+            <button class=\"like-btn\" data-idx=\"${idx}\" style=\"background:#232;color:#7fff7f;border:none;border-radius:5px;padding:5px 14px;cursor:pointer;font-size:1em;display:flex;align-items:center;gap:6px;\">👍 <span>${likes}</span></button>
+            <button class=\"dislike-btn\" data-idx=\"${idx}\" style=\"background:#232;color:#ff6b6b;border:none;border-radius:5px;padding:5px 14px;cursor:pointer;font-size:1em;display:flex;align-items:center;gap:6px;\">👎 <span>${dislikes}</span></button>
+            ${adminLikeRemove}
+            ${adminDislikeRemove}
+          </div>
+        </div>
+      `;
+    }
+    function getYouTubeId(url) {
+      let m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|shorts\/))([\w-]{11})/);
+      return m ? m[1] : null;
+    }
+    // --- Sorting Tabs ---
+    document.addEventListener('DOMContentLoaded', function() {
+      document.getElementById('sortPopular').onclick = function() { currentSort = 'popular'; renderMovies(); };
+      document.getElementById('sortNewest').onclick = function() { currentSort = 'newest'; renderMovies(); };
+      document.getElementById('sortOldest').onclick = function() { currentSort = 'oldest'; renderMovies(); };
+    });
+    // --- Contact Tab Logic ---
+    document.getElementById('contactTab').onclick = function() {
+      const contact = document.getElementById('contactSection');
+      if (contact.style.display === 'none' || contact.style.display === '') {
+        contact.style.display = 'block';
+        window.scrollTo({top: contact.offsetTop-30, behavior: 'smooth'});
+      } else {
+        contact.style.display = 'none';
+      }
+    };
+    // --- Loading Screen ---
+    function hideLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      const main = document.querySelector('.container');
+      overlay.style.opacity = 0;
+      setTimeout(()=>{ overlay.style.display = 'none'; main.style.opacity = 1; }, 700);
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      const video = document.getElementById('loadingVideo');
+      let done = false;
+      function finish() { if (!done) { done = true; hideLoadingOverlay(); } }
+      video.addEventListener('ended', finish);
+      video.addEventListener('error', finish);
+      setTimeout(finish, 8000); // fallback timeout
+    });
+    // --- Username Modal ---
+    function ensureAccount() {
+      let username = localStorage.getItem('gorillaUsername');
+      if (!username) {
+        showLoginOrRegister();
+      } else {
+        currentUser = username;
+      }
+    }
+    // --- Account Logout Button ---
+    function renderUserBar() {
+      let username = currentUser || localStorage.getItem('gorillaUsername');
+      let bar = document.getElementById('userBar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'userBar';
+        bar.style = 'position:fixed;top:12px;right:18px;z-index:1000;display:flex;align-items:center;gap:12px;background:#232323;padding:8px 18px;border-radius:8px;box-shadow:0 2px 8px #0006;font-size:1.08em;';
+        document.body.appendChild(bar);
+      }
+      bar.innerHTML = `<span style='color:#7fff7f;'>👤 ${username}</span> <button id='userLogoutBtn' style='background:#b22222;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:1em;cursor:pointer;'>Log out</button>`;
+      document.getElementById('userLogoutBtn').onclick = function() {
+        localStorage.removeItem('gorillaUsername');
+        currentUser = null;
+        // Discord webhook for logout
+        fetch(DISCORD_WEBHOOK, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: `# 🚪 User logged out: **${username}**` })
+        }).catch(()=>{});
+        if (bar) bar.remove();
+        showLoginOrRegister();
+      };
+    }
+    // --- Init ---
+    renderAdminPanel();
+    renderMovies();
+    ensureAccount();
+    renderUserBar();
+    // Show user bar after login/register
+    window.showLoginOrRegister = function() {
+      showLoginOrRegister();
+      setTimeout(renderUserBar, 100); // re-render bar after login
+    };
+  </script>
+</body>
+</html>
